@@ -38,49 +38,47 @@ set_custom_css()
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
-# --- KONEKSI KE GOOGLE SHEETS (DENGAN SUNTIKAN ANTI-ERROR JWT) ---
+# --- KONEKSI KE GOOGLE SHEETS (SOLUSI PAMUNGKAS ANTI-JWT ERROR) ---
 @st.cache_resource
 def init_connection():
-    if "google_credentials" in st.secrets:
-        kunci_str = st.secrets["google_credentials"]
-        kunci_dict = json.loads(kunci_str)
-        
-        # --- KODE AJAIB PENYELAMAT JWT ---
-        # Mengembalikan format enter (\n) yang sering dirusak oleh sistem Cloud
-        if "\\n" in kunci_dict["private_key"]:
+    try:
+        if "google_credentials" in st.secrets:
+            # 1. Mengambil JSON utuh dari brankas Streamlit
+            kunci_dict = json.loads(st.secrets["google_credentials"], strict=False)
+            
+            # 2. Memaksa huruf '\n' menjadi karakter Enter (Newline) yang asli
             kunci_dict["private_key"] = kunci_dict["private_key"].replace("\\n", "\n")
             
-        gc = gspread.service_account_from_dict(kunci_dict)
-    else:
-        gc = gspread.service_account(filename='kunci.json') 
-    
-    sh = gc.open('Database_Travel')
-    return sh
+            # 3. Menciptakan file bayangan bernama 'kunci_sementara.json' di dalam server
+            with open("kunci_sementara.json", "w") as f:
+                json.dump(kunci_dict, f)
+                
+            # 4. Menyuruh Google membaca file fisik tersebut, persis seperti di laptop Anda!
+            gc = gspread.service_account(filename="kunci_sementara.json")
+        else:
+            gc = gspread.service_account(filename='kunci.json') 
+            
+        sh = gc.open('Database_Travel')
+        return sh
+    except Exception as e:
+        st.error(f"Gagal terhubung ke database. Error: {e}")
+        st.stop()
 
 try:
     sh = init_connection()
+    ws_users = sh.worksheet('Users')
+    ws_laporan = sh.worksheet('Laporan')
+    ws_audit = sh.worksheet('Audit_Log')
+    ws_absen = sh.worksheet('Absen')
+    ws_jurnal = sh.worksheet('Jurnal_Umum')
+    ws_aset = sh.worksheet('Aset_Tetap')
 except Exception as e:
-    st.error(f"Gagal terhubung ke database. Error: {e}")
-    st.stop()
-
-@st.cache_resource
-def get_worksheet(sheet_name):
-    return sh.worksheet(sheet_name)
-
-try:
-    ws_users = get_worksheet('Users')
-    ws_laporan = get_worksheet('Laporan')
-    ws_audit = get_worksheet('Audit_Log')
-    ws_absen = get_worksheet('Absen')
-    ws_jurnal = get_worksheet('Jurnal_Umum')
-    ws_aset = get_worksheet('Aset_Tetap')
-except Exception as e:
-    st.error(f"Sheet tidak ditemukan. Error: {e}")
+    st.error(f"Sheet tidak ditemukan. Pastikan nama sheet di Google Sheets sudah benar.")
     st.stop()
 
 @st.cache_data(ttl=15)
 def get_data(sheet_name):
-    ws = get_worksheet(sheet_name)
+    ws = sh.worksheet(sheet_name)
     data = ws.get_all_records()
     return pd.DataFrame(data)
 
@@ -184,7 +182,6 @@ else:
                         if file_bukti is not None:
                             nama_file_simpan = f"{id_laporan}_{file_bukti.name}"
                             simpan_file(file_bukti, nama_file_simpan)
-                        
                         ws_laporan.append_row([id_laporan, tgl_str, st.session_state.current_user, kategori_final, isi_laporan, nominal, nama_file_simpan])
                         
                         if opsi_kategori == "Pengeluaran Perjalanan":
@@ -238,7 +235,7 @@ else:
                     st.balloons()
 
     # ==========================================
-    # HALAMAN AKUNTAN
+    # HALAMAN AKUNTAN & ADMIN
     # ==========================================
     elif st.session_state.current_role == "Akuntan":
         st.markdown("## 📊 Finance & Accounting Workspace")
@@ -254,22 +251,16 @@ else:
             else:
                 df_jurnal['Debit'] = pd.to_numeric(df_jurnal['Debit'], errors='coerce').fillna(0)
                 df_jurnal['Kredit'] = pd.to_numeric(df_jurnal['Kredit'], errors='coerce').fillna(0)
-                
                 df_pendapatan = df_jurnal[df_jurnal['Kode & Nama Akun'].str.contains("411")]
                 total_pendapatan = df_pendapatan['Kredit'].sum() - df_pendapatan['Debit'].sum()
-                
                 df_beban = df_jurnal[df_jurnal['Kode & Nama Akun'].str.startswith("5")]
                 total_beban = df_beban['Debit'].sum() - df_beban['Kredit'].sum()
-                
                 laba_bersih = total_pendapatan - total_beban
-                
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Pendapatan Kotor", format_rupiah(total_pendapatan))
                 col2.metric("Beban Operasional", format_rupiah(total_beban))
                 col3.metric("Laba Bersih (Net Profit)", format_rupiah(laba_bersih), delta="Profit" if laba_bersih > 0 else "Rugi")
-                
                 st.write("---")
-                st.markdown("### 📉 Visualisasi Arus Keuangan")
                 kolom_grafik1, kolom_grafik2 = st.columns(2)
                 with kolom_grafik1:
                     if not df_beban.empty:
@@ -313,7 +304,6 @@ else:
                 nominal_jurnal = st.number_input("Nominal Transaksi (Rp)", min_value=0, step=10000)
                 keterangan_jurnal = st.text_input("Keterangan Detail (Wajib)")
                 file_bukti = st.file_uploader("Upload Bukti Pendukung", type=["jpg", "png", "pdf"])
-                
                 if st.form_submit_button("Posting Transaksi"):
                     if keterangan_jurnal == "" or nominal_jurnal <= 0:
                         st.error("Gagal: Keterangan dan Nominal wajib diisi.")
@@ -374,9 +364,6 @@ else:
                     catat_audit(st.session_state.current_user, "AUTO_PENYUSUTAN", f"Posting Rp {total_susut}")
                     st.success("Proses eksekusi selesai.")
 
-    # ==========================================
-    # HALAMAN KHUSUS ADMIN (SUPER ADMIN VIEW)
-    # ==========================================
     elif st.session_state.current_role == "Admin":
         st.markdown("<h1 style='color: #0078D4 !important;'>🪟 Administrator Control Panel</h1>", unsafe_allow_html=True)
         menu_admin = st.sidebar.radio("Sistem Monitoring:", ["📊 Executive Summary", "📋 Aktivitas Operasional", "📸 Verifikasi Kehadiran", "📖 Audit Jurnal", "🏢 Master Aset", "🛡️ Security Log"])
