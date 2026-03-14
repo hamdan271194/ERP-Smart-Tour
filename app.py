@@ -7,7 +7,8 @@ import os
 import plotly.express as px
 import io
 import time
-from streamlit_geolocation import streamlit_geolocation # Alat Sensor GPS Baru
+import json # Tambahan modul untuk membaca brankas rahasia
+from streamlit_geolocation import streamlit_geolocation 
 
 st.set_page_config(page_title="ST Smart Tour ERP", layout="wide", page_icon="✈️")
 
@@ -16,55 +17,18 @@ def set_custom_css():
     st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600;700;800&display=swap');
-        
-        html, body, [class*="css"], p, span, label, div, table {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
-            color: #1E1E1E !important;
-        }
-        .stApp {
-            background: linear-gradient(135deg, #f3f3f3 0%, #e6eef5 100%);
-        }
-        [data-testid="stImage"] {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin-bottom: -15px;
-        }
-        @keyframes fluentFadeIn {
-            0% { opacity: 0; transform: translateY(15px); }
-            100% { opacity: 1; transform: translateY(0); }
-        }
-        .block-container {
-            animation: fluentFadeIn 0.8s ease-out;
-        }
-        [data-testid="stForm"], .css-1r6slb0, .css-12oz5g7 {
-            background-color: rgba(255, 255, 255, 0.85) !important;
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.9);
-            border-radius: 12px !important;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.06) !important;
-            padding: 30px !important;
-        }
-        .app-title {
-            text-align: center; color: #0078D4 !important; font-size: 2.5rem !important;
-            font-weight: 800 !important; letter-spacing: 0.5px; margin-top: 10px; margin-bottom: 0px;
-        }
-        .app-subtitle {
-            text-align: center; color: #666666 !important; font-size: 1.1rem !important;
-            font-weight: 600 !important; letter-spacing: 1px; margin-top: -5px; margin-bottom: 25px; text-transform: uppercase;
-        }
-        .stButton>button {
-            background-color: #0078D4 !important; border: none !important; border-radius: 8px !important;
-            padding: 0.6rem 1.4rem !important; transition: all 0.2s ease !important;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1) !important; width: 100%;
-        }
+        html, body, [class*="css"], p, span, label, div, table { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important; color: #1E1E1E !important; }
+        .stApp { background: linear-gradient(135deg, #f3f3f3 0%, #e6eef5 100%); }
+        [data-testid="stImage"] { display: flex; justify-content: center; align-items: center; margin-bottom: -15px; }
+        @keyframes fluentFadeIn { 0% { opacity: 0; transform: translateY(15px); } 100% { opacity: 1; transform: translateY(0); } }
+        .block-container { animation: fluentFadeIn 0.8s ease-out; }
+        [data-testid="stForm"], .css-1r6slb0, .css-12oz5g7 { background-color: rgba(255, 255, 255, 0.85) !important; backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.9); border-radius: 12px !important; box-shadow: 0 8px 32px rgba(0,0,0,0.06) !important; padding: 30px !important; }
+        .app-title { text-align: center; color: #0078D4 !important; font-size: 2.5rem !important; font-weight: 800 !important; letter-spacing: 0.5px; margin-top: 10px; margin-bottom: 0px; }
+        .app-subtitle { text-align: center; color: #666666 !important; font-size: 1.1rem !important; font-weight: 600 !important; letter-spacing: 1px; margin-top: -5px; margin-bottom: 25px; text-transform: uppercase; }
+        .stButton>button { background-color: #0078D4 !important; border: none !important; border-radius: 8px !important; padding: 0.6rem 1.4rem !important; transition: all 0.2s ease !important; box-shadow: 0 4px 8px rgba(0,0,0,0.1) !important; width: 100%; }
         .stButton>button * { color: #FFFFFF !important; font-weight: 600 !important; font-size: 1.1rem !important; }
         .stButton>button:hover { background-color: #106EBE !important; transform: scale(1.02); box-shadow: 0 6px 12px rgba(0, 120, 212, 0.3) !important; }
-        .stTextInput>div>div>input, .stNumberInput>div>div>input, .stTextArea>div>div>textarea {
-            border-radius: 6px !important; border: 1px solid rgba(0,0,0,0.2) !important;
-            background-color: #FFFFFF !important; color: #1E1E1E !important;
-            border-bottom: 2px solid rgba(0,0,0,0.3) !important; padding: 10px !important;
-        }
+        .stTextInput>div>div>input, .stNumberInput>div>div>input, .stTextArea>div>div>textarea { border-radius: 6px !important; border: 1px solid rgba(0,0,0,0.2) !important; background-color: #FFFFFF !important; color: #1E1E1E !important; border-bottom: 2px solid rgba(0,0,0,0.3) !important; padding: 10px !important; }
         .stTextInput>div>div>input:focus, .stNumberInput>div>div>input:focus { border-bottom: 2px solid #0078D4 !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -74,17 +38,24 @@ set_custom_css()
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
-# --- KONEKSI KE GOOGLE SHEETS ---
+# --- KONEKSI KE GOOGLE SHEETS (VIA STREAMLIT SECRETS) ---
 @st.cache_resource
 def init_connection():
-    gc = gspread.service_account(filename='kunci.json')
+    # Mengambil rahasia dari brankas Streamlit Cloud, bukan dari file lokal lagi
+    if "google_credentials" in st.secrets:
+        kunci_dict = json.loads(st.secrets["google_credentials"])
+        gc = gspread.service_account_from_dict(kunci_dict)
+    else:
+        # Cadangan jika dijalankan di laptop lokal yang masih ada file kunci.json
+        gc = gspread.service_account(filename='kunci.json') 
+    
     sh = gc.open('Database_Travel')
     return sh
 
 try:
     sh = init_connection()
 except Exception as e:
-    st.error(f"Gagal terhubung ke database. Error: {e}")
+    st.error(f"Gagal terhubung ke database. Pastikan Secrets sudah diisi. Error: {e}")
     st.stop()
 
 @st.cache_resource
@@ -223,7 +194,6 @@ else:
                         ws_jurnal.append_row([id_jur1, tgl_str, akun_debit, ket_jurnal, nominal, 0, "Sistem Otomatis", nama_file_simpan])
                         id_jur2 = f"JUR-{str(uuid.uuid4())[:5].upper()}"
                         ws_jurnal.append_row([id_jur2, tgl_str, akun_kredit, ket_jurnal, 0, nominal, "Sistem Otomatis", nama_file_simpan])
-
                         catat_audit(st.session_state.current_user, "INPUT_LAPORAN", f"Submit ID: {id_laporan}")
                         st.success("Laporan berhasil disubmit ke server pusat.")
 
@@ -231,7 +201,6 @@ else:
             st.markdown("## 📷 Sistem Absensi Kehadiran & Lokasi")
             jenis_absen = st.radio("Status Kehadiran:", ["Hadir (Check-in)", "Pulang (Check-out)"], horizontal=True)
             
-            # --- FITUR GPS TRACKER ---
             st.markdown("### 📍 Verifikasi Lokasi (Wajib)")
             st.info("Sistem membutuhkan verifikasi lokasi GPS Anda untuk memastikan Anda berada di area kantor.")
             lokasi_saat_ini = streamlit_geolocation()
@@ -258,8 +227,6 @@ else:
                     id_absen = f"ABS-{str(uuid.uuid4())[:5].upper()}"
                     nama_file_foto = f"{id_absen}_{st.session_state.current_user}.jpg"
                     simpan_file(foto_absen, nama_file_foto)
-                    
-                    # Menyimpan 6 Data (Termasuk Link Google Maps) ke Sheet
                     ws_absen.append_row([id_absen, waktu_sekarang, st.session_state.current_user, jenis_absen, nama_file_foto, link_gmaps])
                     catat_audit(st.session_state.current_user, "ABSENSI_GPS", f"Absensi {jenis_absen} terpantau GPS")
                     st.success(f"Absensi {jenis_absen} beserta titik lokasi Anda berhasil diverifikasi!")
@@ -299,7 +266,6 @@ else:
                 st.write("---")
                 st.markdown("### 📉 Visualisasi Arus Keuangan")
                 kolom_grafik1, kolom_grafik2 = st.columns(2)
-                
                 with kolom_grafik1:
                     if not df_beban.empty:
                         df_beban_group = df_beban.groupby('Kode & Nama Akun')['Debit'].sum().reset_index()
@@ -323,16 +289,16 @@ else:
                 col1, col2 = st.columns(2)
                 if jenis_transaksi == "📥 Penerimaan Kas":
                     with col1:
+                        st.success(f"Debit (Auto): 111 - Kas & Bank")
                         akun_debit = "111 - Kas & Bank"
-                        st.success(f"Debit (Auto): {akun_debit}")
                     with col2:
                         akun_kredit = st.selectbox("Akun Kredit", [a for a in daftar_akun if "111" not in a], key="kredit")
                 elif jenis_transaksi == "📤 Pengeluaran Kas":
                     with col1:
                         akun_debit = st.selectbox("Akun Debit", [a for a in daftar_akun if "111" not in a], key="debit")
                     with col2:
+                        st.error(f"Kredit (Auto): 111 - Kas & Bank")
                         akun_kredit = "111 - Kas & Bank"
-                        st.error(f"Kredit (Auto): {akun_kredit}")
                 else:
                     with col1:
                         akun_debit = st.selectbox("Akun Debit", daftar_akun, key="debit_manual")
@@ -355,7 +321,6 @@ else:
                         if file_bukti is not None:
                             nama_file_simpan = f"{id_jur_group}_{file_bukti.name}"
                             simpan_file(file_bukti, nama_file_simpan)
-                        
                         ws_jurnal.append_row([id_jur_group, tgl_str, akun_debit, keterangan_jurnal, nominal_jurnal, 0, st.session_state.current_user, nama_file_simpan])
                         ws_jurnal.append_row([id_jur_group, tgl_str, akun_kredit, keterangan_jurnal, 0, nominal_jurnal, st.session_state.current_user, nama_file_simpan])
                         catat_audit(st.session_state.current_user, "JURNAL", f"Posting Jurnal {jenis_transaksi}")
@@ -381,7 +346,6 @@ else:
                         harga_beli = st.number_input("Nilai Perolehan (Rp)", min_value=0, step=100000)
                     with col2:
                         umur_bulan = st.number_input("Umur Ekonomis (Bulan)", min_value=1, value=60)
-                    
                     if st.form_submit_button("Simpan Aset"):
                         if nama_aset == "" or harga_beli == 0:
                             st.error("Gagal: Data tidak lengkap.")
@@ -392,7 +356,6 @@ else:
                             catat_audit(st.session_state.current_user, "INPUT_ASET", f"Menambah {nama_aset}")
                             st.success(f"Berhasil! Susut bulanan: {format_rupiah(penyusutan_bulan)}")
                             st.rerun()
-            
             df_aset = get_data("Aset_Tetap")
             if not df_aset.empty:
                 st.dataframe(df_aset, use_container_width=True)
@@ -438,14 +401,10 @@ else:
             st.markdown("### 📸 Verifikasi Kehadiran Digital & Lokasi (GPS)")
             st.info("Anda bisa mengklik tautan pada kolom 'Lokasi Peta' untuk melihat titik kordinat satelit karyawan di Google Maps.")
             df_absen_admin = get_data("Absen")
-            
-            # --- FITUR ADMIN: MEMBUAT LINK GOOGLE MAPS BISA DIKLIK DI TABEL ---
             if not df_absen_admin.empty:
                 st.dataframe(
                     df_absen_admin,
-                    column_config={
-                        "Lokasi Peta": st.column_config.LinkColumn("Buka Peta 🗺️")
-                    },
+                    column_config={ "Lokasi Peta": st.column_config.LinkColumn("Buka Peta 🗺️") },
                     use_container_width=True
                 )
             else:
