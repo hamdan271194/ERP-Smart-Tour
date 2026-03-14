@@ -38,17 +38,18 @@ set_custom_css()
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
-# --- KONEKSI KE GOOGLE SHEETS (DENGAN PENANGKAL ERROR JWT) ---
+# --- KONEKSI KE GOOGLE SHEETS (DENGAN SUNTIKAN ANTI-ERROR JWT) ---
 @st.cache_resource
 def init_connection():
     if "google_credentials" in st.secrets:
         kunci_str = st.secrets["google_credentials"]
         kunci_dict = json.loads(kunci_str)
         
-        # --- KODE AJAIB PENYELAMAT JWT SIGNATURE ---
-        # Memperbaiki spasi/enter (\n) rahasia Google yang rusak saat dibaca Streamlit
-        kunci_dict["private_key"] = kunci_dict["private_key"].replace('\\n', '\n')
-        
+        # --- KODE AJAIB PENYELAMAT JWT ---
+        # Mengembalikan format enter (\n) yang sering dirusak oleh sistem Cloud
+        if "\\n" in kunci_dict["private_key"]:
+            kunci_dict["private_key"] = kunci_dict["private_key"].replace("\\n", "\n")
+            
         gc = gspread.service_account_from_dict(kunci_dict)
     else:
         gc = gspread.service_account(filename='kunci.json') 
