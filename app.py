@@ -38,23 +38,23 @@ set_custom_css()
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
-# --- KONEKSI KE GOOGLE SHEETS (SOLUSI PAMUNGKAS ANTI-JWT ERROR) ---
+# --- KONEKSI KE GOOGLE SHEETS (DENGAN MESIN PEMBERSIH KUNCI MUTLAK) ---
 @st.cache_resource
 def init_connection():
     try:
         if "google_credentials" in st.secrets:
-            # 1. Mengambil JSON utuh dari brankas Streamlit
-            kunci_dict = json.loads(st.secrets["google_credentials"], strict=False)
+            kunci_str = st.secrets["google_credentials"]
+            kunci_dict = json.loads(kunci_str, strict=False)
             
-            # 2. Memaksa huruf '\n' menjadi karakter Enter (Newline) yang asli
-            kunci_dict["private_key"] = kunci_dict["private_key"].replace("\\n", "\n")
-            
-            # 3. Menciptakan file bayangan bernama 'kunci_sementara.json' di dalam server
-            with open("kunci_sementara.json", "w") as f:
-                json.dump(kunci_dict, f)
-                
-            # 4. Menyuruh Google membaca file fisik tersebut, persis seperti di laptop Anda!
-            gc = gspread.service_account(filename="kunci_sementara.json")
+            # === KODE MESIN PEMBERSIH KUNCI ===
+            pk = str(kunci_dict.get("private_key", ""))
+            pk = pk.strip()                      # 1. Buang spasi kosong di awal/akhir
+            pk = pk.replace("\\n", "\n")         # 2. Ubah format tulisan \n jadi Enter asli
+            pk = pk.replace("\r\n", "\n")        # 3. Basmi format Enter ganda bawaan Windows Notepad
+            kunci_dict["private_key"] = pk       # 4. Masukkan kembali kunci yang sudah bersih
+            # ==================================
+
+            gc = gspread.service_account_from_dict(kunci_dict)
         else:
             gc = gspread.service_account(filename='kunci.json') 
             
@@ -73,7 +73,7 @@ try:
     ws_jurnal = sh.worksheet('Jurnal_Umum')
     ws_aset = sh.worksheet('Aset_Tetap')
 except Exception as e:
-    st.error(f"Sheet tidak ditemukan. Pastikan nama sheet di Google Sheets sudah benar.")
+    st.error(f"Gagal memuat Sheet. Pastikan nama sheet di Google Sheets sudah benar.")
     st.stop()
 
 @st.cache_data(ttl=15)
