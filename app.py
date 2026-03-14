@@ -7,7 +7,7 @@ import os
 import plotly.express as px
 import io
 import time
-import json # Tambahan modul untuk membaca brankas rahasia
+import json
 from streamlit_geolocation import streamlit_geolocation 
 
 st.set_page_config(page_title="ST Smart Tour ERP", layout="wide", page_icon="✈️")
@@ -38,15 +38,19 @@ set_custom_css()
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
-# --- KONEKSI KE GOOGLE SHEETS (VIA STREAMLIT SECRETS) ---
+# --- KONEKSI KE GOOGLE SHEETS (DENGAN PENANGKAL ERROR JWT) ---
 @st.cache_resource
 def init_connection():
-    # Mengambil rahasia dari brankas Streamlit Cloud, bukan dari file lokal lagi
     if "google_credentials" in st.secrets:
-        kunci_dict = json.loads(st.secrets["google_credentials"])
+        kunci_str = st.secrets["google_credentials"]
+        kunci_dict = json.loads(kunci_str)
+        
+        # --- KODE AJAIB PENYELAMAT JWT SIGNATURE ---
+        # Memperbaiki spasi/enter (\n) rahasia Google yang rusak saat dibaca Streamlit
+        kunci_dict["private_key"] = kunci_dict["private_key"].replace('\\n', '\n')
+        
         gc = gspread.service_account_from_dict(kunci_dict)
     else:
-        # Cadangan jika dijalankan di laptop lokal yang masih ada file kunci.json
         gc = gspread.service_account(filename='kunci.json') 
     
     sh = gc.open('Database_Travel')
@@ -55,7 +59,7 @@ def init_connection():
 try:
     sh = init_connection()
 except Exception as e:
-    st.error(f"Gagal terhubung ke database. Pastikan Secrets sudah diisi. Error: {e}")
+    st.error(f"Gagal terhubung ke database. Error: {e}")
     st.stop()
 
 @st.cache_resource
